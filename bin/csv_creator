@@ -1,0 +1,143 @@
+#!/usr/bin/env ruby
+
+require 'nexpose'
+require File.expand_path(File.join(File.dirname(__FILE__), '../lib/raw_xml_data_builder'))
+require File.expand_path(File.join(File.dirname(__FILE__), '../lib/formatters/default_formatter'))
+require File.expand_path(File.join(File.dirname(__FILE__), '../lib/report_generator_options'))
+
+
+def output_data file, data_array, csv_separator
+	line_item = ''
+
+	data_array.each do |data|
+		data = data || ''
+		line_item << '"'
+		line_item << data
+		line_item << '"'
+		line_item << csv_separator
+	end
+
+	file.puts line_item
+end
+
+def parse_and_verify_options options
+	vuln_only = options.report_vuln_only.to_s.downcase
+	if vuln_only == 'true'
+		options.report_vuln_only = true
+	elsif vuln_only == 'false'
+		options.report_vuln_only = false
+	else
+		raise ArgumentError.new "Illegal option for -v : #{options.report_vuln_only}"
+	end
+
+	if options.host.nil?
+		raise ArgumentError.new "The NeXpose host is required"
+	end
+
+	if options.user.nil?
+		raise ArgumentError.new "The NeXpose username is required"
+	end
+
+	if options.password.nil?
+		raise ArgumentError.new "The NeXpose password is required"
+	end
+
+	if options.ofn.nil?
+		raise ArgumentError.new "The output file name needs to be specified"
+	end
+
+end
+
+begin
+	options = Options.parse ARGV
+	parse_and_verify_options options
+
+	csv_separator = options.separator
+
+	# Log into NeXpose
+	client_api = Nexpose::Connection.new options.host, options.user, options.password, options.port
+	client_api.login
+
+	export_file = File.open options.ofn, 'w'
+
+	# Output headers
+	output_data export_file, options.headers.split(/,/), csv_separator
+
+	# get sites
+  sites = []
+  if options.sites.nil?
+	  sites = client_api.site_listing
+  else
+    sites_array = options.sites.to_s.split(",")
+    sites_array.each do |site_id|
+      sites << {:site_id => site_id.to_i}
+    end
+  end
+
+	# For each site get the adhoc report data
+	data_builder = RawXMLDataBuilder.new client_api, options.report_vuln_only
+
+	formatter = DefaultFormatter.new
+
+	sites.each do |site|
+		puts "Correlating data for site: #{site[:site_id]}"
+		nodes_data = data_builder.get_node_data site[:site_id]
+		vuln_data = data_builder.get_vuln_data
+
+		nodes_data.each do |node_data|
+
+			vuln_id = node_data[:vuln_id]
+			node_vuln_data = vuln_data[vuln_id]
+
+			vuln_status = node_data[:vuln_status]
+
+			port_protocol = ''
+		  if node_data[:port] and not node_data[:port].to_s.chomp.empty?
+				port_protocol << node_data[:port]
+				port_protocol << ','
+				port_protocol << node_data[:protocol]
+			else
+				port_protocol << '0'
+			end
+
+			host = node_data[:name]
+			ip = node_data[:ip]
+
+			vuln_descrription_needed = {:description => node_vuln_data[:description]}
+			vuln_description = formatter.do_description_format vuln_descrription_needed
+			vuln_description.to_s.squeeze!(" ")
+			vuln_description.to_s.gsub!(/"/, '')
+
+			vuln_solution_needed = {:solution    => node_vuln_data[:solution]}
+			vuln_solution = formatter.do_description_format vuln_solution_needed
+			vuln_solution.to_s.squeeze!(" ")
+			vuln_solution.to_s.gsub!(/"/, '')
+
+			os = node_data[:fingerprint]
+
+			vuln_category = (node_data[:port] and not node_data[:port].to_s.chomp.empty?) ? 'Application' : 'Platform'
+
+			proof_data_needed = {:proof => node_data[:proof]}
+			proof_info = formatter.do_description_format proof_data_needed
+			proof_info.to_s.squeeze!(" ")
+			proof_info.to_s.gsub!(/"/, '')
+
+			cvss = node_vuln_data[:cvss]
+
+			data_array = []
+			data_array << vuln_status
+			data_array << port_protocol
+			data_array << host
+			data_array << ip
+			data_array << vuln_description
+			data_array << vuln_solution
+			data_array << vuln_id
+			data_array << os
+			data_array << vuln_category
+			data_array << proof_info
+			data_array << cvss
+			output_data export_file, data_array, csv_separator
+
+		end
+	end
+end
