@@ -1,1 +1,3 @@
-This file was created by JetBrains RubyMine 3.1.1 for binding GitHub repository
+After the gem is installed:
+
+'csv_creator --help' for options

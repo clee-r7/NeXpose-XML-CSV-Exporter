@@ -3,8 +3,9 @@ require 'rake'
 
 Gem::Specification.new do |spec|
 	spec.name = 'nexpose_csv_generator'
-	spec.version = '0.0.1'
+	spec.version = '0.0.2'
 	spec.platform=Gem::Platform::RUBY
+  spec.homepage='https://github.com/chrlee/NeXpose-XML-CSV-Exporter'
   spec.description=
 <<Description
   This is a tool that connects to an NSC instance to generate a user specified delimited report with the following fields:
